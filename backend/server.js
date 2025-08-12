@@ -2,73 +2,57 @@ import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
 import fetch from "node-fetch";
+import Ajv from "ajv";
 
+const ajv = new Ajv();
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Example prompt templates
-const zeroShotPrompt = (userPrompt) => `
-You are a research expert. Answer in JSON format:
-{
-  "summary": "...",
-  "key_points": ["...", "..."],
-  "source_links": ["..."]
-}
+const outputSchema = {
+  type: "object",
+  properties: {
+    summary: { type: "string" },
+    key_points: { type: "array", items: { type: "string" } },
+    source_links: { type: "array", items: { type: "string" } },
+  },
+  required: ["summary", "key_points", "source_links"],
+};
 
-Q: ${userPrompt}
-A:
+
+const basePrompt = `
+You are a research expert.
+IMPORTANT: You MUST OUTPUT only a single valid JSON object and nothing else.
+The object must match exactly this schema:
+{
+  "summary": "string",
+  "key_points": ["string", "..."],
+  "source_links": ["string", "..."]
+}
+Do NOT include any explanations, headings, bullet points, or markdown fences.
+Start the output with '{' and end with the matching '}'.
 `;
 
-const oneShotPrompt = (userPrompt) => `
+
+const zeroShotPrompt = (userPrompt) => `${basePrompt}\nQ: ${userPrompt}\nA:`;
+const oneShotPrompt = (userPrompt) => `${basePrompt}
 Example:
-Q: Compare India's GDP growth in 2020 and 2021.
-A: {
-  "summary": "India’s GDP contracted in 2020 due to COVID and recovered in 2021.",
-  "key_points": [
-    "GDP contracted -7.3% in 2020",
-    "GDP grew 8.7% in 2021"
-  ],
-  "source_links": ["https://example.com/source1"]
-}
+Q: What is the capital of France?
+A: {"summary":"Paris is the capital of France.","key_points":["Largest city in France"],"source_links":["https://en.wikipedia.org/wiki/Paris"]}
 
 Q: ${userPrompt}
-A:
-`;
-
-const fewShotPrompt = (userPrompt) => `
-You are a research assistant. Answer all questions in this JSON format:
-{
-  "summary": "...",
-  "key_points": ["...", "..."],
-  "source_links": ["..."]
-}
-
+A:`;
+const fewShotPrompt = (userPrompt) => `${basePrompt}
 Example 1:
-Q: Compare the 2024 and 2019 Indian election results.
-A: {
-  "summary": "BJP won fewer seats in 2024 but retained majority...",
-  "key_points": [
-    "BJP: 303 in 2019 → 290 in 2024",
-    "Opposition coalition gains strength"
-  ],
-  "source_links": ["https://example.com/election2024"]
-}
+Q: List three benefits of exercise.
+A: {"summary":"Exercise improves health.","key_points":["Cardio health","Mental wellbeing","Strength"],"source_links":["https://example.com/benefits"]}
 
 Example 2:
-Q: What are the key climate policies in the EU and US?
-A: {
-  "summary": "The EU has stricter targets, while the US is catching up post-IRA.",
-  "key_points": [
-    "EU aims for net-zero by 2050",
-    "US Inflation Reduction Act provides $370B for climate"
-  ],
-  "source_links": ["https://example.com/climate"]
-}
+Q: Name top 3 tallest mountains.
+A: {"summary":"Top 3 tallest mountains.","key_points":["Mount Everest - 8849m","K2 - 8611m","Kangchenjunga - 8586m"],"source_links":["https://example.com/mountains"]}
 
 Q: ${userPrompt}
-A:
-`;
+A:`;
 
 function detectPromptType(prompt, clientMode = "auto") {
   if (clientMode !== "auto") return clientMode;
@@ -78,12 +62,48 @@ function detectPromptType(prompt, clientMode = "auto") {
   return "one-shot";
 }
 
+
+function extractBalancedJSON(text) {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") depth--;
+    if (depth === 0) return text.slice(start, i + 1);
+  }
+  return null;
+}
+
+
+async function callOllama(prompt, temperature = 0, top_p = 1, top_k = 40) {
+  const resp = await fetch("http://localhost:11434/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "llama3",
+      prompt,
+      temperature,
+      top_p,
+      top_k,
+      stop: ["Q:"],
+      stream: false,
+    }),
+  });
+  return await resp.json();
+}
+
 app.post("/api/query", async (req, res) => {
-  const userPrompt = req.body.prompt;
-  const mode = req.body.mode || "auto";
+  const {
+    prompt: userPrompt,
+    mode = "auto",
+    temperature = 0, 
+    top_p = 1,
+    top_k = 40,
+    debug = false, 
+  } = req.body;
 
   const promptType = detectPromptType(userPrompt, mode);
-
   let finalPrompt;
   switch (promptType) {
     case "one-shot":
@@ -92,27 +112,106 @@ app.post("/api/query", async (req, res) => {
     case "few-shot":
       finalPrompt = fewShotPrompt(userPrompt);
       break;
-    case "zero-shot":
     default:
       finalPrompt = zeroShotPrompt(userPrompt);
   }
 
   try {
-    const response = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "llama3",
-        prompt: finalPrompt,
-        stream: false,
-      }),
-    });
+    const rawData = await callOllama(finalPrompt, temperature, top_p, top_k);
+    const rawOutput =
+      rawData && rawData.response ? String(rawData.response) : "";
 
-    const data = await response.json();
-    res.json({ response: data.response });
-  } catch (error) {
-    console.error("Ollama API error:", error);
-    res.status(500).json({ error: "Ollama API call failed" });
+   
+    let cleaned = rawOutput.replace(/```(?:json)?/g, "").trim();
+
+  
+    let jsonText = extractBalancedJSON(cleaned);
+
+    if (!jsonText) {
+      const simpleMatch = cleaned.match(/\{[\s\S]*\}/);
+      jsonText = simpleMatch ? simpleMatch[0] : null;
+    }
+
+    let parsed = null;
+    if (jsonText) {
+      try {
+        parsed = JSON.parse(jsonText);
+      } catch (e) {
+        parsed = null;
+      }
+    }
+
+    
+    let repairRaw = null;
+    if (!parsed) {
+      const repairPrompt = `
+You received a previous non-JSON or malformed output. Below is the original output.
+Please EXTRACT AND RETURN ONLY a valid JSON object that matches exactly this schema:
+{
+  "summary": "string",
+  "key_points": ["string", "..."],
+  "source_links": ["string", "..."]
+}
+Do NOT add any extra text. Return only the JSON object (start with '{' and end with '}').
+
+Original output:
+${rawOutput}
+`;
+      const repairData = await callOllama(repairPrompt, 0, 1, 40);
+      repairRaw =
+        repairData && repairData.response ? String(repairData.response) : "";
+
+      
+      let cleanedRepair = repairRaw.replace(/```(?:json)?/g, "").trim();
+      const repairedJson =
+        extractBalancedJSON(cleanedRepair) ||
+        (cleanedRepair.match(/\{[\s\S]*\}/)
+          ? cleanedRepair.match(/\{[\s\S]*\}/)[0]
+          : null);
+
+      if (repairedJson) {
+        try {
+          parsed = JSON.parse(repairedJson);
+        } catch (e) {
+          parsed = null;
+        }
+      }
+    }
+
+   
+    if (!parsed) {
+      const payload = {
+        response:
+          "Model output was not valid JSON after extraction and repair.",
+      };
+      if (debug) {
+        payload.raw = rawOutput;
+        payload.repairAttempt = repairRaw;
+      }
+      return res.status(200).json(payload);
+    }
+
+  
+    const validate = ajv.compile(outputSchema);
+    if (!validate(parsed)) {
+      const payload = {
+        response: "Model output did not match expected schema.",
+      };
+      if (debug) {
+        payload.parsed = parsed;
+      }
+      return res.status(200).json(payload);
+    }
+
+   
+    const result = { response: parsed };
+    if (debug) {
+      result.raw = rawOutput;
+    }
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("Ollama API error:", err);
+    return res.status(500).json({ error: "Ollama API call failed" });
   }
 });
 
