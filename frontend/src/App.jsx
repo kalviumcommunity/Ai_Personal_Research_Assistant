@@ -10,6 +10,10 @@ function App() {
   const [topK, setTopK] = useState(40);
   const [useRAG, setUseRAG] = useState(false);
   const [useFunctionCalling, setUseFunctionCalling] = useState(false);
+  
+
+  const [useCoT, setUseCoT] = useState(false);
+
   const [file, setFile] = useState(null);
   const [ingestStatus, setIngestStatus] = useState('');
 
@@ -52,8 +56,9 @@ function App() {
         top_k: topK,
         useRAG,
         useFunctionCalling,
+        useCoT, 
       }, {
-        timeout: 300000
+        timeout: 300000 
       });
       setResponse(JSON.stringify(res.data.response, null, 2));
     } catch (error) {
@@ -125,6 +130,20 @@ function App() {
               Enable Web Search (Function Calling)
             </label>
           </div>
+
+          {}
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1rem' }}>
+            <input
+              type="checkbox"
+              id="cotToggle"
+              checked={useCoT}
+              onChange={(e) => setUseCoT(e.target.checked)}
+              style={{ width: '18px', height: '18px', marginRight: '0.5rem' }}
+            />
+            <label htmlFor="cotToggle" style={{ fontWeight: 'bold' }}>
+              Enable Chain of Thought (Better Reasoning)
+            </label>
+          </div>
           
           <div style={{
             display: 'grid',
@@ -132,41 +151,18 @@ function App() {
             gap: '1rem',
             marginBottom: '1.5rem'
           }}>
+            {}
             <label>
               <strong>Temperature:</strong><br />
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="1"
-                value={temperature}
-                onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #ccc' }}
-              />
+              <input type="number" step="0.1" min="0" max="1" value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value))} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #ccc' }} />
             </label>
-
             <label>
               <strong>Top P:</strong><br />
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="1"
-                value={topP}
-                onChange={(e) => setTopP(parseFloat(e.target.value))}
-                style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #ccc' }}
-              />
+              <input type="number" step="0.1" min="0" max="1" value={topP} onChange={(e) => setTopP(parseFloat(e.target.value))} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #ccc' }} />
             </label>
-
             <label>
               <strong>Top K:</strong><br />
-              <input
-                type="number"
-                min="1"
-                value={topK}
-                onChange={(e) => setTopK(parseInt(e.target.value))}
-                style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #ccc' }}
-              />
+              <input type="number" min="1" value={topK} onChange={(e) => setTopK(parseInt(e.target.value))} style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #ccc' }} />
             </label>
           </div>
           
