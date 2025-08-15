@@ -6,6 +6,7 @@
   "dependencies": {
     "@langchain/community": "^0.3.50",
     "@langchain/core": "^0.3.70",
+    "@tavily/core": "github:tavily-ai/tavily-js",
     "ajv": "^8.17.1",
     "chromadb": "^3.0.12",
     "chromadb-client": "^2.4.6",

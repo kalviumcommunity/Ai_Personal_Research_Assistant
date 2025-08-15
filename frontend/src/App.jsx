@@ -9,6 +9,7 @@ function App() {
   const [topP, setTopP] = useState(1);
   const [topK, setTopK] = useState(40);
   const [useRAG, setUseRAG] = useState(false);
+  const [useFunctionCalling, setUseFunctionCalling] = useState(false);
   const [file, setFile] = useState(null);
   const [ingestStatus, setIngestStatus] = useState('');
 
@@ -50,6 +51,9 @@ function App() {
         top_p: topP,
         top_k: topK,
         useRAG,
+        useFunctionCalling,
+      }, {
+        timeout: 300000
       });
       setResponse(JSON.stringify(res.data.response, null, 2));
     } catch (error) {
@@ -108,8 +112,20 @@ function App() {
               Enable RAG (Query My Documents)
             </label>
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1rem' }}>
+            <input
+              type="checkbox"
+              id="functionCallingToggle"
+              checked={useFunctionCalling}
+              onChange={(e) => setUseFunctionCalling(e.target.checked)}
+              style={{ width: '18px', height: '18px', marginRight: '0.5rem' }}
+            />
+            <label htmlFor="functionCallingToggle" style={{ fontWeight: 'bold' }}>
+              Enable Web Search (Function Calling)
+            </label>
+          </div>
           
-          {/* --- CONTROLS ADDED BACK IN --- */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
@@ -153,7 +169,6 @@ function App() {
               />
             </label>
           </div>
-          {/* --- END OF ADDED CONTROLS --- */}
           
           <button type="submit" style={{ width: '100%', padding: '12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '1.1rem', cursor: 'pointer' }}>
             Ask
